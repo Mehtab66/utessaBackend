@@ -26,6 +26,9 @@ public class OrganizationController {
 
 	@GetMapping
 	public OrgResponse current(@AuthenticationPrincipal UserPrincipal principal) {
+		if (principal.superAdmin() || principal.organizationId() == null) {
+			throw ApiException.forbidden("Platform super admins are not members of a practice organization.");
+		}
 		Organization org = organizationRepository.findById(principal.organizationId())
 				.orElseThrow(() -> ApiException.notFound("Organization not found."));
 		return new OrgResponse(
