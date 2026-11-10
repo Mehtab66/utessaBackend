@@ -3,6 +3,9 @@ package com.crm.crm_backend.organization.domain;
 import java.time.Instant;
 import java.util.UUID;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -30,7 +33,8 @@ public class Membership {
 	private UUID organizationId;
 
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 30)
+	@JdbcTypeCode(SqlTypes.NAMED_ENUM)
+	@Column(nullable = false, columnDefinition = "org_role")
 	private OrgRole role;
 
 	@Column(name = "created_at", nullable = false)
