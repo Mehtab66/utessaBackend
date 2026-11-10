@@ -1,5 +1,6 @@
 package com.crm.crm_backend.shared.security;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -13,12 +14,20 @@ public record UserPrincipal(
 		UUID organizationId,
 		String email,
 		String role,
-		boolean emailVerified
+		boolean emailVerified,
+		boolean superAdmin
 ) implements UserDetails {
 
 	@Override
 	public Collection<? extends GrantedAuthority> getAuthorities() {
-		return List.of(new SimpleGrantedAuthority("ROLE_" + role));
+		List<GrantedAuthority> authorities = new ArrayList<>();
+		if (role != null && !role.isBlank()) {
+			authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+		}
+		if (superAdmin) {
+			authorities.add(new SimpleGrantedAuthority("ROLE_SUPERADMIN"));
+		}
+		return authorities;
 	}
 
 	@Override

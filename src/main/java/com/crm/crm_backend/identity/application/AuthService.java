@@ -16,6 +16,7 @@ import com.crm.crm_backend.identity.api.dto.ResendCodeRequest;
 import com.crm.crm_backend.identity.api.dto.SignupRequest;
 import com.crm.crm_backend.identity.api.dto.SignupResponse;
 import com.crm.crm_backend.identity.api.dto.VerifyEmailRequest;
+import com.crm.crm_backend.identity.domain.PlatformRole;
 import com.crm.crm_backend.identity.domain.User;
 import com.crm.crm_backend.identity.infrastructure.UserRepository;
 import com.crm.crm_backend.onboarding.application.VerificationService;
@@ -77,6 +78,7 @@ public class AuthService {
 		user.setPasswordHash(passwordEncoder.encode(request.password()));
 		user.setPhone(blankToNull(request.phone()));
 		user.setEmailVerified(false);
+		user.setPlatformRole(PlatformRole.NONE);
 		userRepository.save(user);
 
 		Instant trialStart = Instant.now();
@@ -147,15 +149,21 @@ public class AuthService {
 	public MeResponse me(UserPrincipal principal) {
 		User user = userRepository.findById(principal.userId())
 				.orElseThrow(() -> ApiException.unauthorized("User not found."));
+		if (user.isSuperAdmin() || principal.superAdmin()) {
+			return toSuperAdminMe(user);
+		}
 		Organization org = organizationRepository.findById(principal.organizationId())
 				.orElseThrow(() -> ApiException.unauthorized("Organization not found."));
 		Membership membership = membershipRepository.findByUserIdAndOrganizationId(user.getId(), org.getId())
 				.orElseThrow(() -> ApiException.forbidden("You are not a member of this organization."));
-		return toMe(user, org, membership.getRole().name());
+		return toOrgMe(user, org, membership.getRole().name());
 	}
 
 	@Transactional
 	public MeResponse completeWelcome(UserPrincipal principal, String orgType, String ehrName, Set<String> services) {
+		if (principal.superAdmin()) {
+			throw ApiException.badRequest("Platform super admins do not complete practice onboarding.");
+		}
 		Organization org = organizationRepository.findById(principal.organizationId())
 				.orElseThrow(() -> ApiException.notFound("Organization not found."));
 		if (orgType != null && !orgType.isBlank()) {
@@ -180,10 +188,22 @@ public class AuthService {
 
 		User user = userRepository.findById(principal.userId())
 				.orElseThrow(() -> ApiException.unauthorized("User not found."));
-		return toMe(user, org, principal.role());
+		return toOrgMe(user, org, principal.role());
 	}
 
 	private AuthResponse issueAuth(User user) {
+		if (user.isSuperAdmin()) {
+			String token = jwtService.generateToken(
+					user.getId(),
+					null,
+					user.getEmail(),
+					"SUPERADMIN",
+					user.isEmailVerified(),
+					true
+			);
+			return new AuthResponse(token, toSuperAdminMe(user));
+		}
+
 		Membership membership = membershipRepository.findByUserId(user.getId())
 				.orElseThrow(() -> ApiException.forbidden("No organization membership found."));
 		Organization org = organizationRepository.findById(membership.getOrganizationId())
@@ -194,17 +214,36 @@ public class AuthService {
 				org.getId(),
 				user.getEmail(),
 				membership.getRole().name(),
-				user.isEmailVerified()
+				user.isEmailVerified(),
+				false
 		);
-		return new AuthResponse(token, toMe(user, org, membership.getRole().name()));
+		return new AuthResponse(token, toOrgMe(user, org, membership.getRole().name()));
 	}
 
-	private MeResponse toMe(User user, Organization org, String role) {
+	private MeResponse toSuperAdminMe(User user) {
 		return new MeResponse(
 				user.getId(),
 				user.getEmail(),
 				user.getFullName(),
 				user.isEmailVerified(),
+				true,
+				null,
+				null,
+				"SUPERADMIN",
+				null,
+				null,
+				true,
+				Set.of()
+		);
+	}
+
+	private MeResponse toOrgMe(User user, Organization org, String role) {
+		return new MeResponse(
+				user.getId(),
+				user.getEmail(),
+				user.getFullName(),
+				user.isEmailVerified(),
+				false,
 				org.getId(),
 				org.getName(),
 				role,

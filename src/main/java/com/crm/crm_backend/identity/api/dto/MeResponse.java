@@ -9,6 +9,7 @@ public record MeResponse(
 		String email,
 		String fullName,
 		boolean emailVerified,
+		boolean superAdmin,
 		UUID organizationId,
 		String organizationName,
 		String role,

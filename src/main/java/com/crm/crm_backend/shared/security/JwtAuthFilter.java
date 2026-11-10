@@ -12,6 +12,7 @@ import com.crm.crm_backend.shared.tenant.TenantContext;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -28,9 +29,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
 			throws ServletException, IOException {
 		try {
-			String header = request.getHeader(HttpHeaders.AUTHORIZATION);
-			if (header != null && header.startsWith("Bearer ")) {
-				String token = header.substring(7);
+			String token = resolveToken(request);
+			if (token != null && !token.isBlank()) {
 				try {
 					UserPrincipal principal = jwtService.parse(token);
 					UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
@@ -41,7 +41,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 					SecurityContextHolder.clearContext();
 					response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 					response.setContentType("application/json");
-					response.getWriter().write("{\"message\":\"Invalid or expired token\"}");
+					response.getWriter().write("{\"message\":\"Invalid or expired session\"}");
 					return;
 				}
 			}
@@ -49,5 +49,22 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 		} finally {
 			TenantContext.clear();
 		}
+	}
+
+	private String resolveToken(HttpServletRequest request) {
+		String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+		if (header != null && header.startsWith("Bearer ")) {
+			return header.substring(7);
+		}
+		Cookie[] cookies = request.getCookies();
+		if (cookies == null) {
+			return null;
+		}
+		for (Cookie cookie : cookies) {
+			if (SessionCookieService.COOKIE_NAME.equals(cookie.getName())) {
+				return cookie.getValue();
+			}
+		}
+		return null;
 	}
 }
