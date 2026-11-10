@@ -1,0 +1,77 @@
+-- Expand staff + vendor columns to match Practice CRM wireframe registration forms
+
+ALTER TABLE staff_members
+    ADD COLUMN IF NOT EXISTS middle_name VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS preferred_name VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS date_of_birth DATE,
+    ADD COLUMN IF NOT EXISTS languages VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS street VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS apt VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS city VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS state VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS zip VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS home_phone VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS mobile_phone VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS work_phone VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS personal_email VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS emergency_name VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS emergency_relationship VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS emergency_phone VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS designation VARCHAR(80),
+    ADD COLUMN IF NOT EXISTS manager_name VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS employment_type VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS fte VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS hours_per_week VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS shift VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS work_arrangement VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS pay_type VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS pay_rate VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS pay_frequency VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS eval_plan VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS access_role VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS create_login BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS specialty VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS subspecialty VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS board_status VARCHAR(80),
+    ADD COLUMN IF NOT EXISTS board_name VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS board_expires_on DATE,
+    ADD COLUMN IF NOT EXISTS population_focus VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS supervisor_name VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS dea_number VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS dea_expires_on DATE,
+    ADD COLUMN IF NOT EXISTS taxonomy_code VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS caqh_id VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS term_date DATE,
+    ADD COLUMN IF NOT EXISTS last_day_worked DATE,
+    ADD COLUMN IF NOT EXISTS separation_type VARCHAR(80),
+    ADD COLUMN IF NOT EXISTS rehire_eligibility VARCHAR(80),
+    ADD COLUMN IF NOT EXISTS separation_notes TEXT,
+    ADD COLUMN IF NOT EXISTS credentials_json JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- Backfill mobile from legacy phone when present
+UPDATE staff_members
+SET mobile_phone = phone
+WHERE mobile_phone IS NULL AND phone IS NOT NULL;
+
+ALTER TABLE vendors
+    ADD COLUMN IF NOT EXISTS folder VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS contact_role VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS account_number VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS handles_phi BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS contract_start DATE,
+    ADD COLUMN IF NOT EXISTS contract_end DATE,
+    ADD COLUMN IF NOT EXISTS auto_renews BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS cancellation_notice_days INTEGER,
+    ADD COLUMN IF NOT EXISTS monthly_cost NUMERIC(12, 2),
+    ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS documents_json JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE patient_leads
+    ADD COLUMN IF NOT EXISTS preferred_contact VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS referral_source_detail VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS interested_service VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS preferred_provider VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS insurance_payer VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS next_follow_up DATE,
+    ADD COLUMN IF NOT EXISTS last_contact_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS call_outcome VARCHAR(100);
