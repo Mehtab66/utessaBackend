@@ -1,11 +1,14 @@
 package com.crm.crm_backend.organization.api;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -17,6 +20,8 @@ import com.crm.crm_backend.shared.security.UserPrincipal;
 @RestController
 @RequestMapping("/api/v1/org")
 public class OrganizationController {
+
+	private static final Set<String> ALLOWED_SERVICES = Set.of("crm", "ops", "mkt", "tc");
 
 	private final OrganizationRepository organizationRepository;
 
@@ -45,6 +50,39 @@ public class OrganizationController {
 		);
 	}
 
+	@PatchMapping("/services")
+	public OrgResponse updateServices(
+			@AuthenticationPrincipal UserPrincipal principal,
+			@RequestBody UpdateServicesRequest request) {
+		if (principal.superAdmin() || principal.organizationId() == null) {
+			throw ApiException.forbidden("Platform super admins are not members of a practice organization.");
+		}
+		Organization org = organizationRepository.findById(principal.organizationId())
+				.orElseThrow(() -> ApiException.notFound("Organization not found."));
+		Set<String> cleaned = new HashSet<>();
+		if (request.enabledServices() != null) {
+			for (String service : request.enabledServices()) {
+				if (ALLOWED_SERVICES.contains(service)) {
+					cleaned.add(service);
+				}
+			}
+		}
+		org.setEnabledServices(cleaned);
+		organizationRepository.save(org);
+		return new OrgResponse(
+				org.getId(),
+				org.getName(),
+				org.getSlug(),
+				org.getTeamSizeBand(),
+				org.getOrgType(),
+				org.getEhrName(),
+				org.getTrialStartsAt(),
+				org.getTrialEndsAt(),
+				org.isOnboardingDone(),
+				org.getEnabledServices()
+		);
+	}
+
 	public record OrgResponse(
 			UUID id,
 			String name,
@@ -57,5 +95,8 @@ public class OrganizationController {
 			boolean onboardingDone,
 			Set<String> enabledServices
 	) {
+	}
+
+	public record UpdateServicesRequest(Set<String> enabledServices) {
 	}
 }
