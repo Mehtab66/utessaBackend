@@ -48,6 +48,39 @@ public final class PlatformDtos {
 	) {
 	}
 
+	public record OrganizationDetail(
+			UUID id,
+			String name,
+			String slug,
+			String orgType,
+			Integer teamSizeBand,
+			String ehrName,
+			boolean termsAccepted,
+			boolean newsOptIn,
+			boolean onboardingDone,
+			Instant trialStartsAt,
+			Instant trialEndsAt,
+			String status,
+			List<String> enabledServices,
+			long memberCount,
+			List<MemberRow> members,
+			Instant createdAt,
+			Instant updatedAt
+	) {
+	}
+
+	public record MemberRow(
+			UUID id,
+			UUID userId,
+			String fullName,
+			String email,
+			String phone,
+			boolean emailVerified,
+			String role,
+			Instant joinedAt
+	) {
+	}
+
 	public record PlatformUserRow(
 			UUID id,
 			String fullName,

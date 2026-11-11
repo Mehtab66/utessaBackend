@@ -24,7 +24,9 @@ import com.crm.crm_backend.organization.domain.Organization;
 import com.crm.crm_backend.organization.infrastructure.MembershipRepository;
 import com.crm.crm_backend.organization.infrastructure.OrganizationRepository;
 import com.crm.crm_backend.platform.api.dto.PlatformDtos.AttentionItem;
+import com.crm.crm_backend.platform.api.dto.PlatformDtos.MemberRow;
 import com.crm.crm_backend.platform.api.dto.PlatformDtos.MonthCount;
+import com.crm.crm_backend.platform.api.dto.PlatformDtos.OrganizationDetail;
 import com.crm.crm_backend.platform.api.dto.PlatformDtos.OrganizationRow;
 import com.crm.crm_backend.platform.api.dto.PlatformDtos.OverviewResponse;
 import com.crm.crm_backend.platform.api.dto.PlatformDtos.PlatformUserRow;
@@ -122,6 +124,60 @@ public class PlatformService {
 	}
 
 	@Transactional(readOnly = true)
+	public OrganizationDetail organization(UserPrincipal principal, UUID organizationId) {
+		requireSuperAdmin(principal);
+		Organization org = organizationRepository.findById(organizationId)
+				.orElseThrow(() -> ApiException.notFound("Organization not found."));
+
+		List<Membership> memberships = membershipRepository.findByOrganizationId(organizationId);
+		Map<UUID, User> usersById = userRepository.findAllById(
+				memberships.stream().map(Membership::getUserId).toList()
+		).stream().collect(Collectors.toMap(User::getId, u -> u));
+
+		Instant now = Instant.now();
+		List<MemberRow> members = memberships.stream()
+				.sorted(Comparator.comparing(Membership::getCreatedAt))
+				.map(m -> {
+					User user = usersById.get(m.getUserId());
+					return new MemberRow(
+							m.getId(),
+							m.getUserId(),
+							user == null ? "Unknown user" : user.getFullName(),
+							user == null ? "—" : user.getEmail(),
+							user == null || user.getPhone() == null || user.getPhone().isBlank() ? "—" : user.getPhone(),
+							user != null && user.isEmailVerified(),
+							m.getRole() == null ? "MEMBER" : m.getRole().name(),
+							m.getCreatedAt()
+					);
+				})
+				.toList();
+
+		List<String> services = org.getEnabledServices() == null
+				? List.of()
+				: org.getEnabledServices().stream().sorted().toList();
+
+		return new OrganizationDetail(
+				org.getId(),
+				org.getName(),
+				org.getSlug(),
+				blank(org.getOrgType(), "—"),
+				org.getTeamSizeBand(),
+				blank(org.getEhrName(), "—"),
+				org.isTermsAccepted(),
+				org.isNewsOptIn(),
+				org.isOnboardingDone(),
+				org.getTrialStartsAt(),
+				org.getTrialEndsAt(),
+				statusFor(org, now),
+				services,
+				members.size(),
+				members,
+				org.getCreatedAt(),
+				org.getUpdatedAt()
+		);
+	}
+
+	@Transactional(readOnly = true)
 	public List<PlatformUserRow> platformUsers(UserPrincipal principal) {
 		requireSuperAdmin(principal);
 		return userRepository.findAll().stream()
@@ -186,7 +242,7 @@ public class PlatformService {
 						"Onboarding",
 						o.getName() + " has not finished practice setup",
 						"Owner still on the welcome flow",
-						"/platform/organizations"
+						"/platform/organizations/" + o.getId()
 				));
 			}
 			if (o.getTrialEndsAt() != null && o.getTrialEndsAt().isAfter(now) && !o.getTrialEndsAt().isAfter(soon)) {
@@ -194,7 +250,7 @@ public class PlatformService {
 						"Trial",
 						o.getName() + ": trial ending soon",
 						"Trial ends " + o.getTrialEndsAt(),
-						"/platform/organizations"
+						"/platform/organizations/" + o.getId()
 				));
 			}
 		}
