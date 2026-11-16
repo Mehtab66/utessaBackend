@@ -15,8 +15,8 @@ public record SignupRequest(
 		@Email(message = "Enter a valid work email.")
 		String email,
 
-		@NotBlank(message = "Use a password of at least 12 characters.")
-		@Size(min = 12, message = "Use a password of at least 12 characters.")
+		@NotBlank(message = "Use a password of at least 8 characters.")
+		@Size(min = 8, max = 64, message = "Use a password of at least 8 characters.")
 		String password,
 
 		@NotBlank(message = "Add your practice name.")
