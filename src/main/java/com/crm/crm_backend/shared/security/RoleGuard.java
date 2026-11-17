@@ -8,9 +8,9 @@ import com.crm.crm_backend.shared.exception.ApiException;
 public final class RoleGuard {
 
 	private static final Map<String, Set<String>> PERMS = Map.ofEntries(
-			Map.entry("OWNER", Set.of("dash", "creds", "staff", "vendors", "patients", "settings")),
-			Map.entry("ADMIN", Set.of("dash", "creds", "staff", "vendors", "patients", "settings")),
-			Map.entry("MANAGER", Set.of("dash", "creds", "staff", "vendors", "patients")),
+			Map.entry("OWNER", Set.of("dash", "creds", "staff", "vendors", "patients", "crmadmin", "settings")),
+			Map.entry("ADMIN", Set.of("dash", "creds", "staff", "vendors", "patients", "crmadmin", "settings")),
+			Map.entry("MANAGER", Set.of("dash", "creds", "staff", "vendors", "patients", "crmadmin")),
 			Map.entry("FRONT", Set.of("dash", "patients")),
 			Map.entry("CLINICAL", Set.of("dash", "patients")),
 			Map.entry("PROVIDER", Set.of("dash", "patients")),

@@ -7,12 +7,13 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.crm.crm_backend.crm.domain.LeadStatus;
+import com.crm.crm_backend.crm.domain.Lifecycle;
+import com.crm.crm_backend.crm.infrastructure.PatientRepository;
 import com.crm.crm_backend.operations.api.dto.DashboardSummaryResponse;
 import com.crm.crm_backend.operations.api.dto.DashboardSummaryResponse.AttentionItem;
 import com.crm.crm_backend.operations.domain.EmploymentStatus;
-import com.crm.crm_backend.operations.domain.LeadStatus;
 import com.crm.crm_backend.operations.domain.VendorBaaStatus;
-import com.crm.crm_backend.operations.infrastructure.PatientLeadRepository;
 import com.crm.crm_backend.operations.infrastructure.StaffMemberRepository;
 import com.crm.crm_backend.operations.infrastructure.VendorRepository;
 import com.crm.crm_backend.shared.security.RoleGuard;
@@ -22,12 +23,12 @@ import com.crm.crm_backend.shared.tenant.TenantContext;
 @Service
 public class DashboardService {
 
-	private final PatientLeadRepository leadRepository;
+	private final PatientRepository leadRepository;
 	private final StaffMemberRepository staffRepository;
 	private final VendorRepository vendorRepository;
 
 	public DashboardService(
-			PatientLeadRepository leadRepository,
+			PatientRepository leadRepository,
 			StaffMemberRepository staffRepository,
 			VendorRepository vendorRepository
 	) {
@@ -41,10 +42,16 @@ public class DashboardService {
 		RoleGuard.requireOrgAccess(principal, "dash");
 		var orgId = TenantContext.requireOrganizationId();
 
-		long leads = leadRepository.countByOrganizationId(orgId);
-		long openFollowUps = leadRepository.countByOrganizationIdAndStatusIn(
+		long leads = leadRepository.countByOrganizationIdAndLifecycleStageAndLeadStatusIn(
 				orgId,
-				List.of(LeadStatus.NEW, LeadStatus.CONTACTED, LeadStatus.SCHEDULED)
+				Lifecycle.LEAD,
+				List.of(LeadStatus.NEW, LeadStatus.ATTEMPTING_CONTACT, LeadStatus.CONTACTED, LeadStatus.QUALIFIED,
+						LeadStatus.APPOINTMENT_SCHEDULED, LeadStatus.SHOWED)
+		);
+		long openFollowUps = leadRepository.countByOrganizationIdAndLifecycleStageAndLeadStatusIn(
+				orgId,
+				Lifecycle.LEAD,
+				List.of(LeadStatus.NEW, LeadStatus.ATTEMPTING_CONTACT, LeadStatus.CONTACTED, LeadStatus.QUALIFIED)
 		);
 		long providers = staffRepository.countByOrganizationIdAndProvider(orgId, true);
 		long onboarding = staffRepository.countByOrganizationIdAndStatus(orgId, EmploymentStatus.ONBOARDING);
