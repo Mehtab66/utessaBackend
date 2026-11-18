@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.crm.crm_backend.organization.domain.Organization;
 import com.crm.crm_backend.organization.infrastructure.OrganizationRepository;
 import com.crm.crm_backend.shared.exception.ApiException;
+import com.crm.crm_backend.shared.security.RoleGuard;
 import com.crm.crm_backend.shared.security.UserPrincipal;
 
 @RestController
@@ -57,6 +58,7 @@ public class OrganizationController {
 		if (principal.superAdmin() || principal.organizationId() == null) {
 			throw ApiException.forbidden("Platform super admins are not members of a practice organization.");
 		}
+		RoleGuard.requireOrgAccess(principal, "settings");
 		Organization org = organizationRepository.findById(principal.organizationId())
 				.orElseThrow(() -> ApiException.notFound("Organization not found."));
 		Set<String> cleaned = new HashSet<>();
@@ -66,6 +68,9 @@ public class OrganizationController {
 					cleaned.add(service);
 				}
 			}
+		}
+		if (cleaned.isEmpty()) {
+			throw ApiException.badRequest("Keep at least one module turned on.");
 		}
 		org.setEnabledServices(cleaned);
 		organizationRepository.save(org);

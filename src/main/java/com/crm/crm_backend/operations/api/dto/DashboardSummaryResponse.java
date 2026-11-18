@@ -11,6 +11,6 @@ public record DashboardSummaryResponse(
 		long vendorsNeedingBaa,
 		List<AttentionItem> attention
 ) {
-	public record AttentionItem(String title, String meta, String tone) {
+	public record AttentionItem(String title, String meta, String tone, String module) {
 	}
 }

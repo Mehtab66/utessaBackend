@@ -1,6 +1,7 @@
 package com.crm.crm_backend.shared.security;
 
 import java.io.IOException;
+import java.util.Set;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -19,10 +20,34 @@ import jakarta.servlet.http.HttpServletResponse;
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
 
+	private static final Set<String> PUBLIC_AUTH_PATHS = Set.of(
+			"/api/v1/auth/signup",
+			"/api/v1/auth/login",
+			"/api/v1/auth/verify-email",
+			"/api/v1/auth/resend-code",
+			"/api/v1/auth/logout"
+	);
+
 	private final JwtService jwtService;
 
 	public JwtAuthFilter(JwtService jwtService) {
 		this.jwtService = jwtService;
+	}
+
+	@Override
+	protected boolean shouldNotFilter(HttpServletRequest request) {
+		String method = request.getMethod();
+		if ("OPTIONS".equalsIgnoreCase(method)) {
+			return true;
+		}
+		String path = request.getRequestURI();
+		if ("/actuator/health".equals(path)) {
+			return true;
+		}
+		if ("POST".equalsIgnoreCase(method) && PUBLIC_AUTH_PATHS.contains(path)) {
+			return true;
+		}
+		return false;
 	}
 
 	@Override
