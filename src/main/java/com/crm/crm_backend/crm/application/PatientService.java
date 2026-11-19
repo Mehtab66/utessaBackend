@@ -173,6 +173,10 @@ public class PatientService {
 		Patient patient = new Patient();
 		patient.setCreatedByUserId(principal.userId());
 		apply(patient, request);
+		// "Converted" means they are a patient: keep the record type in step with the status.
+		if (patient.getLeadStatus() == LeadStatus.CONVERTED) {
+			patient.setLifecycleStage(Lifecycle.PATIENT);
+		}
 		if (patient.getOwnerUserId() == null) {
 			patient.setOwnerUserId(principal.userId());
 			patient.setOwnerName(support.actorName(principal));
@@ -214,6 +218,10 @@ public class PatientService {
 
 		apply(patient, request);
 		patient.setNextFollowUp(previousFollowUp);
+		// Setting the status to Converted moves a lead to Patients, same as the status shortcut and Convert.
+		if (previousStatus != LeadStatus.CONVERTED && patient.getLeadStatus() == LeadStatus.CONVERTED) {
+			patient.setLifecycleStage(Lifecycle.PATIENT);
+		}
 		if (previousLifecycle != Lifecycle.PATIENT && patient.getLifecycleStage() == Lifecycle.PATIENT) {
 			markConverted(patient);
 		}
