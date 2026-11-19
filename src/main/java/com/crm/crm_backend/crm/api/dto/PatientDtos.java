@@ -9,6 +9,7 @@ import com.crm.crm_backend.crm.domain.LeadStatus;
 import com.crm.crm_backend.crm.domain.Lifecycle;
 import com.crm.crm_backend.crm.domain.Priority;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -150,6 +151,19 @@ public final class PatientDtos {
 	}
 
 	public record BulkResponse(int updated) {
+	}
+
+	/** Leads read from a CSV / Excel file. Every row is saved as a Lead. */
+	public record ImportRequest(
+			@NotEmpty(message = "The file has no rows to import.")
+			@Size(max = 5000, message = "Up to 5,000 rows per file.")
+			List<@Valid PatientRequest> rows,
+			boolean skipDuplicates
+	) {
+	}
+
+	/** {@code skipped} lists "row number: reason" for rows that were not added. */
+	public record ImportResponse(int created, int duplicates, List<String> skipped) {
 	}
 
 	public record DuplicateMatch(

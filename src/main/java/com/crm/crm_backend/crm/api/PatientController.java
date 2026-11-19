@@ -23,6 +23,8 @@ import com.crm.crm_backend.crm.api.dto.ActivityDtos.ActivityResponse;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.BulkRequest;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.BulkResponse;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.ConvertRequest;
+import com.crm.crm_backend.crm.api.dto.PatientDtos.ImportRequest;
+import com.crm.crm_backend.crm.api.dto.PatientDtos.ImportResponse;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.DuplicateMatch;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.PatientRequest;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.PatientResponse;
@@ -135,6 +137,12 @@ public class PatientController {
 			@Valid @RequestBody ActivityRequest request
 	) {
 		return service.addActivity(principal, id, request);
+	}
+
+	/** Bulk-adds leads read from a CSV / Excel file. */
+	@PostMapping("/import")
+	public ImportResponse importLeads(@AuthenticationPrincipal UserPrincipal principal, @Valid @RequestBody ImportRequest request) {
+		return service.importLeads(principal, request);
 	}
 
 	@PostMapping("/bulk")

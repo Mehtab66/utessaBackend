@@ -24,6 +24,8 @@ import com.crm.crm_backend.crm.api.dto.PatientDtos.BulkRequest;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.BulkResponse;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.ConvertRequest;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.DuplicateMatch;
+import com.crm.crm_backend.crm.api.dto.PatientDtos.ImportRequest;
+import com.crm.crm_backend.crm.api.dto.PatientDtos.ImportResponse;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.PatientRequest;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.PatientResponse;
 import com.crm.crm_backend.crm.api.dto.PatientDtos.StatusChangeRequest;
@@ -154,6 +156,49 @@ public class PatientService {
 	public PatientResponse create(UserPrincipal principal, PatientRequest request, boolean allowDuplicate) {
 		support.requireAccess(principal);
 		return toResponse(createRecord(principal, request, allowDuplicate, true));
+	}
+
+	/**
+	 * Imports leads from a file. Each row becomes a Lead (never a Patient; a "Converted" status
+	 * falls back to New). Rows matching an existing record by phone or email are skipped when
+	 * {@code skipDuplicates} is set. No first-contact tasks are created for imported rows.
+	 */
+	@Transactional
+	public ImportResponse importLeads(UserPrincipal principal, ImportRequest request) {
+		support.requireAccess(principal);
+		int created = 0;
+		int duplicates = 0;
+		List<String> skipped = new ArrayList<>();
+		List<PatientRequest> rows = request.rows();
+		for (int i = 0; i < rows.size(); i++) {
+			PatientRequest r = rows.get(i);
+			if (r == null || CrmSupport.clean(r.firstName()) == null) {
+				skipped.add("Row " + (i + 1) + ": first name missing");
+				continue;
+			}
+			if (request.skipDuplicates()) {
+				List<DuplicateMatch> dupes = findDuplicates(r.phone(), r.email(), null);
+				if (!dupes.isEmpty()) {
+					duplicates++;
+					skipped.add("Row " + (i + 1) + ": " + dupes.get(0).fullName() + " already has this " + dupes.get(0).matchedOn());
+					continue;
+				}
+			}
+			LeadStatus status = r.leadStatus() == null || r.leadStatus() == LeadStatus.CONVERTED ? LeadStatus.NEW : r.leadStatus();
+			PatientRequest lead = new PatientRequest(
+					r.firstName(), r.lastName(), r.preferredName(), r.dateOfBirth(), r.gender(), r.phone(), r.altPhone(),
+					r.email(), r.preferredContact(), r.preferredLanguage(), r.bestTimeToCall(),
+					r.consentCall(), r.consentSms(), r.consentEmail(), r.doNotContact(),
+					r.street(), r.city(), r.state(), r.zip(),
+					r.source(), r.sourceDetail(), r.campaign(), r.referralPartnerId(),
+					r.interestedService(), r.preferredProvider(), r.preferredLocation(), r.reasonForVisit(),
+					r.insurancePayer(), r.insurancePlan(), r.insuranceMemberId(), r.insuranceVerified(),
+					Lifecycle.LEAD, status, r.priority(), r.ownerUserId(), r.nextFollowUp(), r.lostReason(),
+					null, r.tags(), r.notes(), r.coverageType(), r.insuranceGroup(), r.policyHolder(), r.smsReminders());
+			createRecord(principal, lead, true, false);
+			created++;
+		}
+		return new ImportResponse(created, duplicates, skipped);
 	}
 
 	/**
