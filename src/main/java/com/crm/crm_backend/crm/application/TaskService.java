@@ -85,6 +85,14 @@ public class TaskService {
 		CrmTask task = new CrmTask();
 		task.setCreatedByName(support.actorName(principal));
 		apply(task, request);
+		if (patient != null) {
+			CrmTask existing = findOpenDuplicate(patient.getId(), task.getTitle());
+			if (existing != null) {
+				throw ApiException.conflict("\"" + existing.getTitle() + "\" is already open for " + patient.getFullName()
+						+ (existing.getDueAt() == null ? "" : " (due " + DUE_FORMAT.format(existing.getDueAt()) + ")")
+						+ ". Open that task to change it, or complete it first.");
+			}
+		}
 		if (task.getAssignedUserId() == null && patient != null && patient.getOwnerUserId() != null) {
 			task.setAssignedUserId(patient.getOwnerUserId());
 			task.setAssignedName(patient.getOwnerName());
@@ -167,6 +175,18 @@ public class TaskService {
 			Instant dueAt,
 			UUID assignedUserId
 	) {
+		// The same follow-up is already open (e.g. a second missed call): keep one task, bring it forward.
+		CrmTask existing = findOpenDuplicate(patientId, CrmSupport.truncate(title, 255));
+		if (existing != null) {
+			if (dueAt != null && (existing.getDueAt() == null || dueAt.isBefore(existing.getDueAt()))) {
+				existing.setDueAt(dueAt);
+			}
+			String again = "Raised again " + DUE_FORMAT.format(Instant.now()) + ".";
+			existing.setNotes(existing.getNotes() == null ? again : CrmSupport.truncate(existing.getNotes() + "\n" + again, 4000));
+			CrmTask saved = repository.save(existing);
+			syncFollowUp(patientId);
+			return saved;
+		}
 		CrmTask task = new CrmTask();
 		task.setPatientId(patientId);
 		task.setOpportunityId(opportunityId);
@@ -241,6 +261,25 @@ public class TaskService {
 				patientRepository.save(patient);
 			}
 		});
+	}
+
+	private static final java.time.format.DateTimeFormatter DUE_FORMAT =
+			java.time.format.DateTimeFormatter.ofPattern("MMM d, h:mm a").withZone(java.time.ZoneId.systemDefault());
+
+	/** An open task with the same title for the same patient (or the same unlinked task), if any. */
+	private CrmTask findOpenDuplicate(UUID patientId, String title) {
+		String wanted = title == null ? "" : title.trim();
+		if (wanted.isEmpty()) {
+			return null;
+		}
+		List<CrmTask> candidates = patientId != null
+				? repository.findByOrganizationIdAndPatientIdOrderByDueAtAsc(support.orgId(), patientId)
+				: repository.findByOrganizationIdOrderByDueAtAsc(support.orgId()).stream().filter(t -> t.getPatientId() == null).toList();
+		return candidates.stream()
+				.filter(CrmTask::isOpen)
+				.filter(t -> t.getTitle() != null && t.getTitle().trim().equalsIgnoreCase(wanted))
+				.findFirst()
+				.orElse(null);
 	}
 
 	private CrmTask require(UUID id) {

@@ -109,6 +109,7 @@ public class AppointmentService {
 			a.setAssignedUserId(principal.userId());
 			a.setAssignedName(support.actorName(principal));
 		}
+		checkPatientDuplicate(a, patient);
 		checkConflict(a);
 		if (integrationService.syncEhrAppointments()) {
 			a.setEhrSyncStatus(IntegrationService.SYNC_PENDING);
@@ -129,6 +130,7 @@ public class AppointmentService {
 		Instant previousStart = a.getStartsAt();
 		AppointmentStatus previousStatus = a.getStatus();
 		apply(a, request, patient);
+		checkPatientDuplicate(a, patient);
 		checkConflict(a);
 		Appointment saved = repository.save(a);
 		if (!previousStart.equals(saved.getStartsAt())) {
@@ -210,6 +212,29 @@ public class AppointmentService {
 		recallRepository.save(recall);
 		support.log(principal, ActivityType.SYSTEM, patient.getId(), a.getOpportunityId(), a.getReferralId(),
 				"Added to the no-shows & cancellations call list", null);
+	}
+
+	/**
+	 * One patient can't hold two active appointments at overlapping times — booking the same
+	 * slot twice (e.g. from the header "Schedule" and the Appointments tab) is refused with a
+	 * pointer to the existing booking instead of silently creating a duplicate.
+	 */
+	private void checkPatientDuplicate(Appointment a, Patient patient) {
+		if (!a.isActive() || a.getStartsAt() == null) {
+			return;
+		}
+		Instant start = a.getStartsAt();
+		Instant end = start.plusSeconds(Math.max(1, a.getDurationMinutes()) * 60L);
+		for (Appointment other : repository.findByOrganizationIdAndPatientIdOrderByStartsAtDesc(support.orgId(), patient.getId())) {
+			if (java.util.Objects.equals(other.getId(), a.getId()) || !other.isActive() || other.getStartsAt() == null) {
+				continue;
+			}
+			Instant otherEnd = other.getStartsAt().plusSeconds(Math.max(1, other.getDurationMinutes()) * 60L);
+			if (other.getStartsAt().isBefore(end) && otherEnd.isAfter(start)) {
+				throw ApiException.conflict(patient.getFullName() + " already has \"" + other.getTitle() + "\" booked at "
+						+ format(other.getStartsAt()) + ". Open that appointment to change it instead of booking it again.");
+			}
+		}
 	}
 
 	private void checkConflict(Appointment a) {
