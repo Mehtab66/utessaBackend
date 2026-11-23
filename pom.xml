@@ -97,6 +97,12 @@
 			<artifactId>spring-dotenv</artifactId>
 			<version>4.0.0</version>
 		</dependency>
+		<!-- Stripe Billing (official SDK) -->
+		<dependency>
+			<groupId>com.stripe</groupId>
+			<artifactId>stripe-java</artifactId>
+			<version>34.2.0</version>
+		</dependency>
 	</dependencies>
 
 	<build>
