@@ -16,4 +16,6 @@ public interface MessageRepository extends JpaRepository<PhoneMessage, UUID> {
 	List<PhoneMessage> findByOrganizationIdOrderByCreatedAtDesc(UUID organizationId);
 
 	List<PhoneMessage> findByOrganizationIdAndPhoneNormalizedOrderByCreatedAtAsc(UUID organizationId, String phoneNormalized);
+
+	boolean existsByOrganizationIdAndExternalId(UUID organizationId, String externalId);
 }

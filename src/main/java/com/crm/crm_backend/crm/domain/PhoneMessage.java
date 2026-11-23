@@ -49,4 +49,8 @@ public class PhoneMessage extends CrmAuditedEntity {
 
 	@Column(name = "read_at")
 	private Instant readAt;
+
+	/** RingCentral message id once the text went through (or came in through) RingCentral. */
+	@Column(name = "external_id")
+	private String externalId;
 }

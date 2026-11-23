@@ -73,6 +73,7 @@ public class PhoneService {
 	private final PatientRepository patients;
 	private final StaffMemberRepository staff;
 	private final CrmSupport support;
+	private final RingCentralService ringCentral;
 	private final ObjectMapper json = new ObjectMapper();
 
 	public PhoneService(
@@ -83,7 +84,8 @@ public class PhoneService {
 			CrmIntegrationRepository integrations,
 			PatientRepository patients,
 			StaffMemberRepository staff,
-			CrmSupport support
+			CrmSupport support,
+			RingCentralService ringCentral
 	) {
 		this.messages = messages;
 		this.voicemails = voicemails;
@@ -93,6 +95,7 @@ public class PhoneService {
 		this.patients = patients;
 		this.staff = staff;
 		this.support = support;
+		this.ringCentral = ringCentral;
 	}
 
 	// ── overview & configuration ────────────────────────────────────────
@@ -259,6 +262,9 @@ public class PhoneService {
 				new LinkedHashMap<>(Map.of("id", "MAIN", "label", "Main line", "number", "")),
 				new LinkedHashMap<>(Map.of("id", "REFERRAL", "label", "Referral line", "number", ""))));
 		m.put("faxNumber", "");
+		// Missed-call auto-text sent through RingCentral
+		m.put("missedCallAutoText", true);
+		m.put("missedCallTextMessage", RingCentralService.DEFAULT_AUTO_TEXT);
 		return m;
 	}
 
@@ -370,11 +376,13 @@ public class PhoneService {
 		m.setSentByUserId(principal.userId());
 		m.setSentByName(support.actorName(principal));
 		PhoneMessage saved = messages.save(m);
+		// Goes out through RingCentral when an SMS-enabled number is connected; otherwise stays QUEUED.
+		ringCentral.deliver(saved, principal.userId());
 		if (patient != null) {
 			Activity a = new Activity();
 			a.setPatientId(patient.getId());
 			a.setActivityType(ActivityType.SMS);
-			a.setSubject("Text message queued");
+			a.setSubject("SENT".equals(saved.getStatus()) ? "Text message sent" : "Text message queued");
 			a.setBody(saved.getBody());
 			a.setPhone(saved.getPhone());
 			a.setActorUserId(principal.userId());

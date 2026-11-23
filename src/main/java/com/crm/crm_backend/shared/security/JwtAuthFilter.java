@@ -44,6 +44,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 		if ("/actuator/health".equals(path)) {
 			return true;
 		}
+		if ("GET".equalsIgnoreCase(method) && "/api/v1/crm/ringcentral/oauth/callback".equals(path)) {
+			return true;
+		}
 		if ("POST".equalsIgnoreCase(method) && PUBLIC_AUTH_PATHS.contains(path)) {
 			return true;
 		}
