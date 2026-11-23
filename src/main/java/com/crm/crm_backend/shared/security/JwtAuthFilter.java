@@ -47,6 +47,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 		if ("GET".equalsIgnoreCase(method) && "/api/v1/crm/ringcentral/oauth/callback".equals(path)) {
 			return true;
 		}
+		if ("POST".equalsIgnoreCase(method) && "/api/v1/stripe/webhook".equals(path)) {
+			return true;
+		}
 		if ("POST".equalsIgnoreCase(method) && PUBLIC_AUTH_PATHS.contains(path)) {
 			return true;
 		}

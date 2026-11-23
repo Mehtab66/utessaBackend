@@ -41,6 +41,8 @@ public class SecurityConfig {
 						.requestMatchers("/actuator/health").permitAll()
 						// RingCentral sign-in popup lands here; identity comes from the signed OAuth state.
 						.requestMatchers(HttpMethod.GET, "/api/v1/crm/ringcentral/oauth/callback").permitAll()
+						// Stripe webhooks: no session; authenticity comes from Stripe's signature.
+						.requestMatchers(HttpMethod.POST, "/api/v1/stripe/webhook").permitAll()
 						.requestMatchers(HttpMethod.POST,
 								"/api/v1/auth/signup",
 								"/api/v1/auth/login",
