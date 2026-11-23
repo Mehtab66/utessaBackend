@@ -17,6 +17,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.MissingNode;
 
+import com.crm.crm_backend.shared.net.SystemTrust;
+
 /** Thin HTTP wrapper over the RingCentral REST API (https://developers.ringcentral.com/api-reference). */
 @Component
 public class RingCentralClient {

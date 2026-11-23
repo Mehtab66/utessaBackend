@@ -1,4 +1,4 @@
-package com.crm.crm_backend.crm.application;
+package com.crm.crm_backend.shared.net;
 
 import java.security.KeyStore;
 import java.security.cert.CertificateException;
@@ -23,14 +23,14 @@ import org.slf4j.LoggerFactory;
  * Without this, Java rejects those connections with "PKIX path building failed". Certificates are
  * still fully verified — a certificate must chain to a root that Java or the OS already trusts.
  */
-final class SystemTrust {
+public final class SystemTrust {
 
 	private static final Logger log = LoggerFactory.getLogger(SystemTrust.class);
 
 	private SystemTrust() {
 	}
 
-	static SSLContext sslContext() {
+	public static SSLContext sslContext() {
 		try {
 			List<X509TrustManager> managers = new ArrayList<>();
 			managers.add(managerFor(null)); // JDK cacerts
