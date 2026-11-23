@@ -54,6 +54,7 @@ public class CallDeskService {
 	private final PatientService patientService;
 	private final TaskService taskService;
 	private final CrmSupport support;
+	private final CallLogLinker linker;
 
 	public CallDeskService(
 			PatientRepository patientRepository,
@@ -64,7 +65,8 @@ public class CallDeskService {
 			ActivityRepository activityRepository,
 			PatientService patientService,
 			TaskService taskService,
-			CrmSupport support
+			CrmSupport support,
+			CallLogLinker linker
 	) {
 		this.patientRepository = patientRepository;
 		this.opportunityRepository = opportunityRepository;
@@ -75,6 +77,7 @@ public class CallDeskService {
 		this.patientService = patientService;
 		this.taskService = taskService;
 		this.support = support;
+		this.linker = linker;
 	}
 
 	@Transactional(readOnly = true)
@@ -146,14 +149,17 @@ public class CallDeskService {
 		boolean outbound = "OUTBOUND".equalsIgnoreCase(request.direction());
 		ActivityType type = outbound ? ActivityType.CALL_OUTBOUND : ActivityType.CALL_INBOUND;
 		String outcome = CrmSupport.clean(request.outcome());
-		Activity activity = new Activity();
+		Activity synced = linker.findSynced(support.orgId(), type, request.phone()).orElse(null);
+		Activity activity = synced != null ? synced : new Activity();
 		activity.setPatientId(patient.getId());
 		activity.setActivityType(type);
 		activity.setSubject((outbound ? "Outbound call" : "Inbound call") + (outcome == null ? "" : " · " + outcome));
 		activity.setBody(CrmSupport.clean(request.notes()));
 		activity.setPhone(request.phone().trim());
 		activity.setCallOutcome(outcome);
-		activity.setDurationSeconds(request.durationSeconds());
+		if (synced == null || synced.getDurationSeconds() == null) {
+			activity.setDurationSeconds(request.durationSeconds());
+		}
 		activity.setActorUserId(principal.userId());
 		activity.setActorName(support.actorName(principal));
 		Activity saved = support.save(activity);

@@ -78,6 +78,7 @@ public class CallFlowService {
 	private final TaskService taskService;
 	private final IntegrationService integrationService;
 	private final CrmSupport support;
+	private final CallLogLinker linker;
 
 	public CallFlowService(
 			PatientRepository patientRepository,
@@ -88,7 +89,8 @@ public class CallFlowService {
 			AppointmentService appointmentService,
 			TaskService taskService,
 			IntegrationService integrationService,
-			CrmSupport support
+			CrmSupport support,
+			CallLogLinker linker
 	) {
 		this.patientRepository = patientRepository;
 		this.appointmentRepository = appointmentRepository;
@@ -99,6 +101,7 @@ public class CallFlowService {
 		this.taskService = taskService;
 		this.integrationService = integrationService;
 		this.support = support;
+		this.linker = linker;
 	}
 
 	// ── 1 · Is this an existing patient on another phone? ───────────────
@@ -158,9 +161,12 @@ public class CallFlowService {
 			throw ApiException.badRequest("Choose the date to call back by.");
 		}
 		boolean outbound = "OUTBOUND".equalsIgnoreCase(r.direction());
-		Activity a = new Activity();
+		ActivityType callType = outbound ? ActivityType.CALL_OUTBOUND : ActivityType.CALL_INBOUND;
+		// The RingCentral sync may already have logged this call — fill that entry in instead of adding another.
+		Activity synced = linker.findSynced(support.orgId(), callType, r.phone()).orElse(null);
+		Activity a = synced != null ? synced : new Activity();
 		a.setPatientId(patient == null ? null : patient.getId());
-		a.setActivityType(outbound ? ActivityType.CALL_OUTBOUND : ActivityType.CALL_INBOUND);
+		a.setActivityType(callType);
 		String reason = CrmSupport.clean(r.reason());
 		a.setSubject(CrmSupport.truncate((outbound ? "Outbound call" : "Inbound call")
 				+ (reason == null ? "" : " · " + reason), 255));
@@ -168,7 +174,10 @@ public class CallFlowService {
 		a.setPhone(r.phone().trim());
 		a.setCallOutcome(outcome);
 		a.setCallReason(reason);
-		a.setDurationSeconds(r.durationSeconds());
+		// Keep RingCentral's real call length; the desk timer is only an estimate.
+		if (synced == null || synced.getDurationSeconds() == null) {
+			a.setDurationSeconds(r.durationSeconds());
+		}
 		a.setPhoneLine(CrmSupport.clean(r.phoneLine()));
 		if (patient != null) {
 			a.setCallerName(patient.getFullName());

@@ -1,5 +1,6 @@
 package com.crm.crm_backend.crm.infrastructure;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -19,6 +20,9 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
 	List<Activity> findByOrganizationIdAndReferralIdOrderByOccurredAtDesc(UUID organizationId, UUID referralId);
 
 	List<Activity> findByOrganizationIdOrderByOccurredAtDesc(UUID organizationId, Pageable pageable);
+
+	List<Activity> findByOrganizationIdAndActivityTypeAndOccurredAtBetween(
+			UUID organizationId, ActivityType type, Instant from, Instant to);
 
 	List<Activity> findByOrganizationIdAndActivityTypeInOrderByOccurredAtDesc(
 			UUID organizationId, Collection<ActivityType> types, Pageable pageable);

@@ -67,6 +67,8 @@ public class RingCentralService {
 			"missed", "voicemail", "no answer", "rejected", "busy", "hang up", "abandoned", "declined", "stopped",
 			// Call forwarded to the browser phone while it wasn't registered (page closed / refreshing)
 			"ip phone offline");
+	/** Phone line recorded on call-history entries the RingCentral sync creates. */
+	public static final String SYNC_LINE = "RingCentral";
 	public static final String DEFAULT_AUTO_TEXT =
 			"Sorry we missed your call! We will call you back shortly. Reply STOP to opt out.";
 
@@ -84,6 +86,7 @@ public class RingCentralService {
 	private final MembershipRepository memberships;
 	private final TaskService taskService;
 	private final CrmSupport support;
+	private final CallLogLinker linker;
 
 	public RingCentralService(
 			RingCentralConfig config,
@@ -99,7 +102,8 @@ public class RingCentralService {
 			UserRepository users,
 			MembershipRepository memberships,
 			TaskService taskService,
-			CrmSupport support
+			CrmSupport support,
+			CallLogLinker linker
 	) {
 		this.config = config;
 		this.client = client;
@@ -115,6 +119,7 @@ public class RingCentralService {
 		this.memberships = memberships;
 		this.taskService = taskService;
 		this.support = support;
+		this.linker = linker;
 	}
 
 	// ── status ──────────────────────────────────────────────────────────
@@ -427,6 +432,7 @@ public class RingCentralService {
 					autoTexts++;
 				}
 			}
+			backfillHistory(c);
 		} catch (RcApiException | ApiException ex) {
 			error = "Call log: " + ex.getMessage();
 			log.warn("RingCentral call-log sync failed for connection {}: {}", c.getId(), ex.getMessage());
@@ -512,8 +518,81 @@ public class RingCentralService {
 		if (missed && fresh && normalized != null && normalized.length() == 10) {
 			texted = handleMissedCall(c, call, patient, actor, practice, otherNumber, "voicemail".equalsIgnoreCase(result));
 		}
+		if (call.getActivityId() == null) {
+			logToHistory(c, call, patient, otherNumber);
+		}
 		calls.save(call);
 		return new Handled(missed, texted);
+	}
+
+	/**
+	 * Writes the call to the call history (Phone → Calls) with its real length from RingCentral.
+	 * When the call was already documented on the call desk, that entry is linked and given the
+	 * RingCentral length instead of adding a second one.
+	 */
+	private void logToHistory(RcConnection c, RcCall call, Patient patient, String rawNumber) {
+		boolean inbound = "INBOUND".equals(call.getDirection());
+		ActivityType type = CallLogLinker.typeFor(inbound);
+		if (!call.isMissed()) {
+			Activity documented = linker.findDocumented(c.getOrganizationId(), type, call.getPhoneNormalized(),
+					call.getStartedAt(), call.getDurationSeconds()).orElse(null);
+			if (documented != null) {
+				if (call.getDurationSeconds() != null) {
+					documented.setDurationSeconds(call.getDurationSeconds());
+				}
+				if (documented.getPatientId() == null && patient != null) {
+					documented.setPatientId(patient.getId());
+				}
+				call.setActivityId(support.save(documented).getId());
+				return;
+			}
+		}
+		String outcome = call.isMissed() ? "Missed" : outcomeFor(call.getResult(), call.getDurationSeconds());
+		String name = inbound ? call.getFromName() : call.getToName();
+		String display = patient != null ? patient.getFullName()
+				: name != null && !name.isBlank() ? name
+				: formatPhone(call.getPhoneNormalized());
+
+		Activity a = new Activity();
+		a.setPatientId(patient == null ? null : patient.getId());
+		a.setActivityType(type);
+		a.setSubject((inbound ? "Inbound call" : "Outbound call") + (outcome == null ? "" : " · " + outcome));
+		a.setPhone(rawNumber != null ? rawNumber : call.getPhoneNormalized());
+		a.setCallOutcome(outcome);
+		a.setDurationSeconds(call.getDurationSeconds());
+		a.setPhoneLine(SYNC_LINE);
+		a.setCallerName(display);
+		a.setCallerType(patient == null ? "NEW_CALLER" : (patient.isLead() ? "LEAD" : "PATIENT"));
+		a.setActorUserId(c.getUserId());
+		a.setActorName(userNames(List.of(c.getUserId())).getOrDefault(c.getUserId(), SYNC_LINE));
+		a.setOccurredAt(call.getStartedAt());
+		call.setActivityId(support.save(a).getId());
+	}
+
+	/** Maps RingCentral call-log results onto the outcomes used on the call desk. */
+	private static String outcomeFor(String result, Integer durationSeconds) {
+		if (result == null) {
+			return durationSeconds != null && durationSeconds > 0 ? "Reached" : null;
+		}
+		return switch (result.toLowerCase()) {
+			case "accepted", "call connected" -> "Reached";
+			case "no answer", "hang up", "ip phone offline" -> "No answer";
+			case "busy" -> "Busy";
+			case "voicemail" -> "Voicemail";
+			case "wrong number", "invalid number" -> "Wrong number";
+			default -> result;
+		};
+	}
+
+	/** Calls synced before every call was written to the call history get their entry now. */
+	private void backfillHistory(RcConnection c) {
+		for (RcCall old : calls.findByOrganizationIdAndConnectionUserIdAndActivityIdIsNull(c.getOrganizationId(), c.getUserId())) {
+			Patient patient = old.getPatientId() == null ? null
+					: patients.findByIdAndOrganizationId(old.getPatientId(), c.getOrganizationId()).orElse(null);
+			boolean inbound = "INBOUND".equals(old.getDirection());
+			logToHistory(c, old, patient, inbound ? old.getFromNumber() : old.getToNumber());
+			calls.save(old);
+		}
 	}
 
 	/** Logs the missed call on the timeline, files a voicemail, adds a call-back task and sends the auto-text. */

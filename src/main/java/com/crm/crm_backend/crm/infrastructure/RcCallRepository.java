@@ -13,6 +13,11 @@ public interface RcCallRepository extends JpaRepository<RcCall, UUID> {
 
 	boolean existsByOrganizationIdAndTelephonySessionId(UUID organizationId, String telephonySessionId);
 
+	boolean existsByOrganizationIdAndActivityId(UUID organizationId, UUID activityId);
+
+	/** Calls imported before every call was written to the call history (back-fill). */
+	List<RcCall> findByOrganizationIdAndConnectionUserIdAndActivityIdIsNull(UUID organizationId, UUID connectionUserId);
+
 	List<RcCall> findByOrganizationIdOrderByStartedAtDesc(UUID organizationId, Pageable page);
 
 	List<RcCall> findByOrganizationIdAndMissedTrueOrderByStartedAtDesc(UUID organizationId, Pageable page);
