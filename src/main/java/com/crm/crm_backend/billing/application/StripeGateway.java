@@ -170,8 +170,31 @@ public class StripeGateway {
 				.stream().map(com.stripe.model.InvoiceItem::getId).collect(java.util.stream.Collectors.toSet());
 	}
 
+	/** The customer's most recent invoices (newest first). */
+	public List<Invoice> listInvoices(String customerId, int limit) {
+		com.stripe.param.InvoiceListParams params = com.stripe.param.InvoiceListParams.builder()
+				.setCustomer(customerId)
+				.setLimit((long) Math.max(1, Math.min(limit, 100)))
+				.build();
+		return call("invoice.list", () -> stripe.v1().invoices().list(params, RequestOptions.getDefault()).getData());
+	}
+
 	public Invoice retrieveInvoice(String invoiceId) {
 		return call("invoice.retrieve", () -> stripe.v1().invoices().retrieve(invoiceId));
+	}
+
+	/**
+	 * "Now" as Stripe sees it for this subscription: the test clock's simulated time when the
+	 * subscription runs on one (test mode only), otherwise the real time. Stripe validates dates such as
+	 * proration dates against the clock, so sending real time to a clocked subscription fails.
+	 */
+	public long nowFor(Subscription subscription) {
+		String clockId = subscription == null ? null : subscription.getTestClock();
+		if (clockId == null) {
+			return java.time.Instant.now().getEpochSecond();
+		}
+		Long frozen = call("test_clock.retrieve", () -> stripe.v1().testHelpers().testClocks().retrieve(clockId)).getFrozenTime();
+		return frozen != null ? frozen : java.time.Instant.now().getEpochSecond();
 	}
 
 	// ── subscription schedules (changes at the next renewal) ───────────

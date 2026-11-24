@@ -81,9 +81,21 @@ public class SubscriptionChangeService {
 		}
 	}
 
-	/** Current subscription, freshly read from Stripe. */
+	/**
+	 * Current subscription, freshly read from Stripe. {@code booked} / {@code bookedInterval} are the
+	 * plan already booked for the next renewal (the schedule's next phase), or null when none is.
+	 */
 	record Ctx(UUID orgId, OrganizationSubscription row, Subscription stripeSub, List<Current> current,
-			BillingInterval interval, boolean inTrial, String stateHash) {
+			BillingInterval interval, boolean inTrial, String stateHash, List<Current> booked, BillingInterval bookedInterval) {
+
+		/** What a change starts from: the plan booked for renewal if there is one, else the current plan. */
+		List<Current> base() {
+			return booked != null ? booked : current;
+		}
+
+		BillingInterval baseInterval() {
+			return booked != null ? bookedInterval : interval;
+		}
 	}
 
 	/**
@@ -101,10 +113,11 @@ public class SubscriptionChangeService {
 	private final OrganizationSubscriptionRepository subscriptions;
 	private final BillingQueryService queries;
 	private final PreviewTokens tokens;
+	private final InvoiceSyncService invoiceSync;
 
 	public SubscriptionChangeService(BillingAccess access, PricingCatalog catalog, StripeGateway gateway,
 			IdempotencyService idempotency, SubscriptionSyncService sync, OrganizationSubscriptionRepository subscriptions,
-			BillingQueryService queries, PreviewTokens tokens) {
+			BillingQueryService queries, PreviewTokens tokens, InvoiceSyncService invoiceSync) {
 		this.access = access;
 		this.catalog = catalog;
 		this.gateway = gateway;
@@ -113,6 +126,7 @@ public class SubscriptionChangeService {
 		this.subscriptions = subscriptions;
 		this.queries = queries;
 		this.tokens = tokens;
+		this.invoiceSync = invoiceSync;
 	}
 
 	// ── preview ─────────────────────────────────────────────────────────
@@ -122,10 +136,11 @@ public class SubscriptionChangeService {
 		UUID orgId = access.requireBillingAdmin(principal);
 		Ctx ctx = load(orgId);
 		Plan plan = plan(ctx, request.modules(), request.seats(), request.interval());
-		requireSingleKind(plan);
+		requireSingleKind(plan, ctx.booked() != null);
 		ChangeTiming timing = timing(plan, ctx, request.timing());
+		requireNoBookingForImmediate(ctx, timing);
 		boolean charges = chargesNow(plan, timing, ctx);
-		long prorationDate = Instant.now().getEpochSecond();
+		long prorationDate = gateway.nowFor(ctx.stripeSub());
 		String currency = catalog.currency();
 
 		Money dueNow = new Money(0, currency);
@@ -240,6 +255,8 @@ public class SubscriptionChangeService {
 						}
 					});
 		}
+		// Invoices too: repairs any whose status change was missed (e.g. voided while offline).
+		gateway.listInvoices(row.getStripeCustomerId(), 24).forEach(invoiceSync::upsert);
 		return queries.subscription(orgId);
 	}
 
@@ -255,16 +272,13 @@ public class SubscriptionChangeService {
 		}
 		Ctx ctx = load(orgId);
 		Plan plan = plan(ctx, modules, seats, interval);
-		requireKindFor(endpoint, plan);
+		requireKindFor(endpoint, plan, ctx.booked() != null);
 		ChangeTiming timing = timing(plan, ctx, requestedTiming);
 		boolean charges = chargesNow(plan, timing, ctx);
 		if (charges && "past_due".equals(ctx.row().getSubscriptionStatus())) {
 			throw ApiException.conflict("There's an unpaid invoice. Update your payment method and pay it before adding to your plan.");
 		}
-		if (timing == ChangeTiming.IMMEDIATE && !ctx.inTrial() && ctx.stripeSub().getSchedule() != null) {
-			throw ApiException.conflict("A change is already booked for your next renewal"
-					+ " (" + ctx.row().getScheduledChangeAt() + "). Cancel it first, then make this change.");
-		}
+		requireNoBookingForImmediate(ctx, timing);
 		Long prorationDate = null;
 		if (charges) {
 			prorationDate = tokens.require(previewToken, orgId, changeHash(plan, timing), ctx.stateHash()).prorationDate();
@@ -288,6 +302,11 @@ public class SubscriptionChangeService {
 	// ── Stripe updates ─────────────────────────────────────────────────
 
 	private ChangeResponse applyNow(Ctx ctx, Plan plan, boolean charges, Long prorationDate, IdempotencyService.Context op) {
+		if (ctx.stripeSub().getSchedule() != null && ctx.booked() == null) {
+			// A schedule whose booked change already happened stays attached until its last phase
+			// ends; it has nothing left to apply, so let the subscription go before changing it.
+			gateway.releaseSchedule(ctx.stripeSub().getSchedule(), op.stripeKey("release-finished-schedule"));
+		}
 		SubscriptionUpdateParams.Builder b = SubscriptionUpdateParams.builder().addExpand("latest_invoice");
 		for (ItemChange c : plan.itemChanges()) {
 			SubscriptionUpdateParams.Item.Builder item = SubscriptionUpdateParams.Item.builder();
@@ -320,6 +339,14 @@ public class SubscriptionChangeService {
 		Invoice invoice = updated.getLatestInvoiceObject();
 		if (updated.getPendingUpdate() != null) {
 			// Payment failed or needs the customer (e.g. 3-D Secure): nothing is applied until paid.
+			// The invoice embedded in the update response can lack its payment page link; read it again.
+			if (invoice != null && invoice.getHostedInvoiceUrl() == null && invoice.getId() != null) {
+				try {
+					invoice = gateway.retrieveInvoice(invoice.getId());
+				} catch (StripeCallException ex) {
+					log.warn("Couldn't re-read invoice {} for its payment link: {}", invoice.getId(), ex.getMessage());
+				}
+			}
 			return new ChangeResponse("PAYMENT_REQUIRED", null,
 					invoice == null ? null : new Money(nz(invoice.getAmountDue()), invoice.getCurrency()),
 					invoice == null ? null : invoice.getHostedInvoiceUrl(), summary);
@@ -411,10 +438,55 @@ public class SubscriptionChangeService {
 			current.add(new Current(info.get().productKey(), si.getId(), si.getPrice().getId(),
 					si.getQuantity() == null ? 1 : si.getQuantity().intValue()));
 		}
+		List<Current> booked = null;
+		BillingInterval bookedInterval = null;
+		if (s.getSchedule() != null) {
+			SubscriptionSchedule schedule = gateway.retrieveSchedule(s.getSchedule());
+			booked = bookedPhase(schedule, catalog);
+			if (booked != null) {
+				bookedInterval = booked.stream().map(c -> catalog.byPriceId(c.priceId()).orElseThrow().interval())
+						.findFirst().orElse(interval);
+				booked.forEach(c -> fingerprint.add("booked:" + c.priceId() + ":" + c.quantity()));
+			}
+		}
 		fingerprint.sort(null);
 		String stateHash = PreviewTokens.sha256(String.join(",", fingerprint) + "|" + status + "|" + s.getSchedule()
 				+ "|" + s.getCancelAtPeriodEnd());
-		return new Ctx(orgId, row, s, current, interval, "trialing".equals(status), stateHash);
+		return new Ctx(orgId, row, s, current, interval, "trialing".equals(status), stateHash, booked, bookedInterval);
+	}
+
+	/**
+	 * The plan a subscription schedule has booked for the next renewal: the phase that starts when
+	 * the current phase ends. Null when there is none (e.g. the schedule is already in its last phase).
+	 */
+	static List<Current> bookedPhase(SubscriptionSchedule schedule, PricingCatalog catalog) {
+		SubscriptionSchedule.CurrentPhase now = schedule.getCurrentPhase();
+		if (now == null || now.getEndDate() == null || schedule.getPhases() == null) {
+			return null;
+		}
+		for (SubscriptionSchedule.Phase phase : schedule.getPhases()) {
+			if (!now.getEndDate().equals(phase.getStartDate())) {
+				continue;
+			}
+			List<Current> items = new ArrayList<>();
+			for (SubscriptionSchedule.Phase.Item item : phase.getItems()) {
+				PricingCatalog.PriceInfo info = catalog.byPriceId(item.getPrice()).orElseThrow(() -> ApiException.conflict(
+						"The change booked for your next renewal has a price this server doesn't recognise. Contact support."));
+				items.add(new Current(info.productKey(), null, item.getPrice(),
+						item.getQuantity() == null ? 1 : item.getQuantity().intValue()));
+			}
+			return items;
+		}
+		return null;
+	}
+
+	private static void requireNoBookingForImmediate(Ctx ctx, ChangeTiming timing) {
+		// Only a change still waiting for the renewal blocks; a schedule left over from one that
+		// already happened doesn't (it is released before the change, see applyNow).
+		if (timing == ChangeTiming.IMMEDIATE && !ctx.inTrial() && ctx.booked() != null) {
+			throw ApiException.conflict("A change is already booked for your next renewal"
+					+ " (" + ctx.row().getScheduledChangeAt() + "). Cancel it first, then make this change.");
+		}
 	}
 
 	private static List<String> normalizeModules(Set<String> modules) {
@@ -431,7 +503,7 @@ public class SubscriptionChangeService {
 	private Plan plan(Ctx ctx, Set<String> modules, Integer seats, BillingInterval interval) {
 		SortedSet<String> keys = new TreeSet<>();
 		if (modules == null) {
-			ctx.current().stream().map(Current::key).filter(k -> !SubscriptionItem.SEAT_KEY.equals(k)).forEach(keys::add);
+			ctx.base().stream().map(Current::key).filter(k -> !SubscriptionItem.SEAT_KEY.equals(k)).forEach(keys::add);
 		} else {
 			for (String raw : modules) {
 				keys.add(BillingModule.fromKey(raw).orElseThrow(() -> ApiException.badRequest("Unknown module: " + raw)).key());
@@ -440,7 +512,7 @@ public class SubscriptionChangeService {
 		if (keys.isEmpty()) {
 			throw ApiException.badRequest("Keep at least one module. To stop paying entirely, cancel the subscription.");
 		}
-		int currentSeats = ctx.current().stream().filter(c -> SubscriptionItem.SEAT_KEY.equals(c.key()))
+		int currentSeats = ctx.base().stream().filter(c -> SubscriptionItem.SEAT_KEY.equals(c.key()))
 				.mapToInt(Current::quantity).sum();
 		int targetSeats = seats == null ? currentSeats : seats;
 		int members = access.billableMembers(ctx.orgId());
@@ -448,13 +520,16 @@ public class SubscriptionChangeService {
 			throw ApiException.badRequest("Your practice has " + members + " team member" + (members == 1 ? "" : "s")
 					+ " besides the owner. Remove members first, or keep at least " + members + " seat" + (members == 1 ? "" : "s") + ".");
 		}
-		BillingInterval targetInterval = interval == null ? ctx.interval() : interval;
-		return ChangePlanner.plan(ctx.current(), ctx.interval(), new Target(keys, targetSeats, targetInterval), catalog);
+		BillingInterval targetInterval = interval == null ? ctx.baseInterval() : interval;
+		// With a change already booked for renewal, the new change goes on top of it (it replaces the
+		// booked phase as a whole, so starting from the current plan would silently undo the booking).
+		return ChangePlanner.plan(ctx.base(), ctx.baseInterval(), new Target(keys, targetSeats, targetInterval), catalog);
 	}
 
-	private static void requireSingleKind(Plan plan) {
+	private static void requireSingleKind(Plan plan, boolean booked) {
 		if (plan.kind() == Kind.NO_CHANGE) {
-			throw ApiException.badRequest("That's already your plan — nothing to change.");
+			throw ApiException.badRequest(booked ? "That's already the plan booked for your next renewal — nothing to change."
+					: "That's already your plan — nothing to change.");
 		}
 		if (plan.kind() == Kind.MIXED) {
 			throw ApiException.badRequest("Add and remove in two separate changes: first add "
@@ -466,8 +541,8 @@ public class SubscriptionChangeService {
 		}
 	}
 
-	private static void requireKindFor(Endpoint endpoint, Plan plan) {
-		requireSingleKind(plan);
+	private static void requireKindFor(Endpoint endpoint, Plan plan, boolean booked) {
+		requireSingleKind(plan, booked);
 		boolean ok = switch (endpoint) {
 			case UPGRADE -> plan.kind() == Kind.UPGRADE;
 			case DOWNGRADE -> plan.kind() == Kind.DOWNGRADE;
