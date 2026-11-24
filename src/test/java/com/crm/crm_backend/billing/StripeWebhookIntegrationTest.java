@@ -137,6 +137,22 @@ class StripeWebhookIntegrationTest extends BillingIntegrationTestBase {
 	}
 
 	@Test
+	void aVoidedInvoiceNoLongerShowsAsOpen() {
+		String invoiceId = "in_it_" + UUID.randomUUID().toString().substring(0, 8);
+		when(gateway.retrieveSubscription(subscriptionId)).thenReturn(subscription("active", 1));
+		when(gateway.retrieveInvoice(invoiceId)).thenReturn(invoice(invoiceId, "open", 0));
+		String failed = event("evt_it_" + UUID.randomUUID(), "invoice.payment_failed", invoiceId, "invoice", false);
+		webhooks.receive(bytes(failed), sign(failed, now()));
+		assertThat(invoices.findByStripeInvoiceId(invoiceId).orElseThrow().getInvoiceStatus()).isEqualTo("open");
+
+		when(gateway.retrieveInvoice(invoiceId)).thenReturn(invoice(invoiceId, "void", 0));
+		String voided = event("evt_it_" + UUID.randomUUID(), "invoice.voided", invoiceId, "invoice", false);
+		assertThat(webhooks.receive(bytes(voided), sign(voided, now()))).isEqualTo(StripeWebhookService.Outcome.PROCESSED);
+
+		assertThat(invoices.findByStripeInvoiceId(invoiceId).orElseThrow().getInvoiceStatus()).isEqualTo("void");
+	}
+
+	@Test
 	void liveModeEventIsIgnoredWithATestKey() {
 		String payload = event("evt_it_" + UUID.randomUUID(), "customer.subscription.updated", subscriptionId, "subscription", true);
 		assertThat(webhooks.receive(bytes(payload), sign(payload, now()))).isEqualTo(StripeWebhookService.Outcome.IGNORED);

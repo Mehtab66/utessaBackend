@@ -59,6 +59,10 @@ public class StripeWebhookService {
 			"customer.subscription.trial_will_end",
 			"invoice.paid",
 			"invoice.payment_failed",
+			"invoice.finalized",
+			"invoice.updated",
+			"invoice.voided",
+			"invoice.marked_uncollectible",
 			"checkout.session.completed");
 
 	public enum Outcome { PROCESSED, DUPLICATE, IGNORED }
@@ -162,6 +166,9 @@ public class StripeWebhookService {
 			case "customer.subscription.trial_will_end" -> trialWillEnd(objectId);
 			case "invoice.paid" -> invoicePaid(objectId);
 			case "invoice.payment_failed" -> invoiceFailed(objectId);
+			// invoice.updated as well: it accompanies every status change, so one dropped event
+			// (e.g. invoice.voided) can't leave the local copy stale.
+			case "invoice.finalized", "invoice.updated", "invoice.voided", "invoice.marked_uncollectible" -> invoiceChanged(objectId);
 			case "checkout.session.completed" -> checkoutCompleted(objectId);
 			default -> new Handled(WebhookProcessingStatus.IGNORED, null);
 		};
@@ -223,6 +230,17 @@ public class StripeWebhookService {
 					Instant.now(), inv.getAmountPaid(), inv.getCurrency(), null, false));
 		}
 		return new Handled(WebhookProcessingStatus.PROCESSED, before.getOrganizationId());
+	}
+
+	/**
+	 * An invoice changed without a payment (finalized, updated, voided, marked uncollectible): keep the
+	 * local copy current so a voided invoice no longer shows as open with a Pay link.
+	 */
+	private Handled invoiceChanged(String invoiceId) {
+		Invoice inv = gateway.retrieveInvoice(invoiceId);
+		return invoiceSync.upsert(inv)
+				.map(row -> new Handled(WebhookProcessingStatus.PROCESSED, row.getOrganizationId()))
+				.orElseGet(() -> new Handled(WebhookProcessingStatus.IGNORED, null));
 	}
 
 	/**

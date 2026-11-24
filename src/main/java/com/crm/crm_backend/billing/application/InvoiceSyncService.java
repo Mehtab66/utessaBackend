@@ -1,5 +1,6 @@
 package com.crm.crm_backend.billing.application;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -13,6 +14,7 @@ import com.crm.crm_backend.billing.domain.SubscriptionInvoice;
 import com.crm.crm_backend.billing.infrastructure.OrganizationSubscriptionRepository;
 import com.crm.crm_backend.billing.infrastructure.SubscriptionInvoiceRepository;
 import com.stripe.model.Invoice;
+import com.stripe.model.InvoiceLineItem;
 
 /**
  * Mirrors Stripe invoices into {@code subscription_invoices}. Always given an invoice freshly read
@@ -69,8 +71,9 @@ public class InvoiceSyncService {
 		row.setInvoiceStatus(inv.getStatus() == null ? "draft" : inv.getStatus());
 		row.setHostedInvoiceUrl(inv.getHostedInvoiceUrl());
 		row.setInvoicePdfUrl(inv.getInvoicePdf());
-		row.setPeriodStart(SubscriptionSyncService.instant(inv.getPeriodStart()));
-		row.setPeriodEnd(SubscriptionSyncService.instant(inv.getPeriodEnd()));
+		Long[] period = servicePeriod(inv);
+		row.setPeriodStart(SubscriptionSyncService.instant(period[0]));
+		row.setPeriodEnd(SubscriptionSyncService.instant(period[1]));
 		row.setPaidAt(inv.getStatusTransitions() == null ? null : SubscriptionSyncService.instant(inv.getStatusTransitions().getPaidAt()));
 		row.setAttemptCount(inv.getAttemptCount() == null ? 0 : inv.getAttemptCount().intValue());
 		row.setNextPaymentAttempt(SubscriptionSyncService.instant(inv.getNextPaymentAttempt()));
@@ -85,6 +88,33 @@ public class InvoiceSyncService {
 			});
 		}
 		return invoices.saveAndFlush(row);
+	}
+
+	/**
+	 * The period the invoice charges for. Stripe's invoice-level period_start/end describe the period
+	 * *before* a subscription invoice (e.g. a renewal on 25 Dec shows 25 Nov–25 Dec), so the period is
+	 * taken from the line items: the regular (non-proration) lines if there are any, else all lines.
+	 * Falls back to the invoice's own dates when no line has a period.
+	 */
+	static Long[] servicePeriod(Invoice inv) {
+		List<InvoiceLineItem> lines = inv.getLines() == null || inv.getLines().getData() == null
+				? List.of() : inv.getLines().getData();
+		List<InvoiceLineItem> withPeriod = lines.stream()
+				.filter(l -> l.getPeriod() != null && l.getPeriod().getStart() != null && l.getPeriod().getEnd() != null)
+				.toList();
+		List<InvoiceLineItem> regular = withPeriod.stream().filter(l -> !isProration(l)).toList();
+		List<InvoiceLineItem> use = regular.isEmpty() ? withPeriod : regular;
+		if (use.isEmpty()) {
+			return new Long[] { inv.getPeriodStart(), inv.getPeriodEnd() };
+		}
+		long start = use.stream().mapToLong(l -> l.getPeriod().getStart()).min().getAsLong();
+		long end = use.stream().mapToLong(l -> l.getPeriod().getEnd()).max().getAsLong();
+		return new Long[] { start, end };
+	}
+
+	private static boolean isProration(InvoiceLineItem l) {
+		return l.getParent() != null && l.getParent().getSubscriptionItemDetails() != null
+				&& Boolean.TRUE.equals(l.getParent().getSubscriptionItemDetails().getProration());
 	}
 
 	private static long nz(Long v) {

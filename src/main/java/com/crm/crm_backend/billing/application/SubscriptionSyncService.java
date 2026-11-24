@@ -209,10 +209,13 @@ public class SubscriptionSyncService {
 		if (schedule == null || schedule.getPhases() == null || !"active".equals(schedule.getStatus())) {
 			return;
 		}
-		long now = Instant.now().getEpochSecond();
-		SubscriptionSchedule.Phase next = schedule.getPhases().stream()
-				.filter(ph -> ph.getStartDate() != null && ph.getStartDate() > now)
-				.min((a, b) -> Long.compare(a.getStartDate(), b.getStartDate()))
+		// The booked phase is the one that starts when Stripe's current phase ends. Using Stripe's own
+		// current phase (not our clock) clears the booking once it has happened, test clocks included.
+		SubscriptionSchedule.CurrentPhase current = schedule.getCurrentPhase();
+		Long currentEnd = current == null ? null : current.getEndDate();
+		SubscriptionSchedule.Phase next = currentEnd == null ? null : schedule.getPhases().stream()
+				.filter(ph -> currentEnd.equals(ph.getStartDate()))
+				.findFirst()
 				.orElse(null);
 		if (next == null || next.getItems() == null) {
 			return;
