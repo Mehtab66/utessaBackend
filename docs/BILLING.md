@@ -13,7 +13,7 @@ tables in migrations `V13`–`V17`.
 | Rule | Behaviour |
 |---|---|
 | Free trial | 14 days from signup, **no card needed**. All 4 modules; owner + **10** team members. |
-| Trial vs paid | Kept separate. The trial ends at its date **or as soon as paid billing starts** — and then it's over for good (cancelling later doesn't bring it back; re-subscribing is charged immediately). |
+| Trial vs paid | Kept separate. **Subscribing ends the trial**: the first period is charged at checkout and the practice moves straight to its paid plan. The trial is then over for good (cancelling later doesn't bring it back). Without subscribing, the trial simply ends at its date. |
 | Seats | Charged per team member **besides the owner** (owner is free). Seats can't go below the current team size. |
 | One subscription | Each organization has exactly one Stripe subscription; changes update it by **subscription item id**. Never a second one. |
 | Prices | Never hard-coded. Configured as Stripe Price or Product IDs; amounts come from Stripe. The browser only sends module keys, a seat count and an interval. |
@@ -76,7 +76,7 @@ Same key + different request → 422.
 | `GET /subscription` | — | status, interval, trial, period, items (incl. `SCHEDULED_ADD` / `SCHEDULED_REMOVAL`), seats purchased/used, scheduled change, failure/grace dates |
 | `GET /invoices?limit=24` | — | invoices (status, amounts, period, hosted URL, PDF URL) |
 | `GET /customer`, `POST /customer`, `PUT /customer` | `{name, email, phone, address{line1,line2,city,state,postalCode,country}}` | billing details shown on invoices |
-| `POST /subscriptions` | `{"modules":["crm","ops"],"seats":5,"interval":"MONTHLY"}` | `{sessionId, checkoutUrl, expiresAt, trialEndsAt}` — redirect to `checkoutUrl` |
+| `POST /subscriptions` | `{"modules":["crm","ops"],"seats":5,"interval":"MONTHLY"}` | `{sessionId, checkoutUrl, expiresAt}` — redirect to `checkoutUrl`; the first period is charged there (`trialEndsAt` is always null) |
 | `GET /checkout/{sessionId}` | — | `{status: open/complete/expired, subscription}` — call from the success page; reads Stripe server-side |
 | `POST /preview` | `{"modules":[…],"seats":8,"interval":"MONTHLY","timing":"IMMEDIATE"}` (omitted = unchanged) | `changeType`, `timing`, `amountDueNow`, `nextInvoiceAmount/At`, `lines`, `previewToken` (15 min) |
 | `POST /upgrade` | change + `previewToken` | `{result: APPLIED / PAYMENT_REQUIRED, amountInvoiced, paymentUrl, subscription}` |
@@ -86,7 +86,7 @@ Same key + different request → 422.
 | `POST /scheduled-change/cancel` | — | undoes a change booked for renewal |
 | `POST /cancel` | `{"mode":"PERIOD_END"}` or `{"mode":"IMMEDIATE"}` | `{result: CANCEL_SCHEDULED / CANCELED, effectiveAt}` |
 | `POST /reactivate` | — | `{result: REACTIVATED}` |
-| `POST /subscription/refresh` | — | re-reads the subscription from Stripe (recovers a missed webhook) |
+| `POST /subscription/refresh` | — | re-reads the subscription and the last 24 invoices from Stripe (recovers missed webhooks) |
 
 Webhook: `POST /api/v1/stripe/webhook` (public, signature-verified).
 
@@ -124,7 +124,7 @@ window) → `FAILED`. While unresolved, other changes for that practice get 409;
 stored once (unique) → handler **re-reads the object from Stripe** (never trusts the payload), so duplicates and
 out-of-order delivery can't corrupt state → `PROCESSED` / `IGNORED` / `FAILED` (500 → Stripe retries; plus
 `StripeWebhookRetryJob` every 5 min). Handled: `customer.subscription.created|updated|deleted|trial_will_end`,
-`invoice.paid`, `invoice.payment_failed`, `checkout.session.completed`. A second live subscription for an
+`invoice.paid`, `invoice.payment_failed`, `invoice.finalized|updated|voided|marked_uncollectible`, `checkout.session.completed`. A second live subscription for an
 organization is cancelled immediately and logged for refund review.
 
 **Concurrency**: one in-flight change per organization (index + advisory lock), row lock + `@Version` on the
@@ -148,7 +148,7 @@ payment failed (with grace date), plan-change payment failed, payment recovered,
 
 ### Production checklist
 - [ ] Live keys (`sk_live_…`, `pk_live_…`) and live price/product IDs in the server environment (not in git).
-- [ ] Dashboard → Developers → Webhooks → add `https://<api-host>/api/v1/stripe/webhook` with the 7 events above;
+- [ ] Dashboard → Developers → Webhooks → add `https://<api-host>/api/v1/stripe/webhook` with the 11 events above;
       set its signing secret in `STRIPE_WEBHOOK_SECRET`.
 - [ ] Dashboard → Billing → Subscriptions and emails → enable **Smart Retries** for failed payments; decide on
       Stripe's own customer emails (Utessa also emails the owner).
