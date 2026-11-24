@@ -1,6 +1,5 @@
 package com.crm.crm_backend.billing.application;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -28,22 +27,18 @@ import com.crm.crm_backend.shared.security.UserPrincipal;
 import com.stripe.model.Subscription;
 import com.stripe.model.checkout.Session;
 import com.stripe.param.checkout.SessionCreateParams;
-import com.stripe.param.checkout.SessionCreateParams.SubscriptionData.TrialSettings;
-import com.stripe.param.checkout.SessionCreateParams.SubscriptionData.TrialSettings.EndBehavior;
 
 /**
  * Starts the organization's one subscription through Stripe Checkout (Stripe's hosted payment
- * page). The trial already running since signup carries over: the first charge happens when it
- * ends. Paid status is never taken from the browser — only from Stripe (webhook, or a
- * server-side read of the Checkout session).
+ * page). Subscribing ends the free trial: the first period is charged at checkout and the
+ * practice moves straight to its paid plan (the trial is then over for good). Paid status is
+ * never taken from the browser — only from Stripe (webhook, or a server-side read of the
+ * Checkout session).
  */
 @Service
 public class SubscriptionService {
 
 	private static final Logger log = LoggerFactory.getLogger(SubscriptionService.class);
-	/** Stripe requires a trial end at least 48 hours away when set through Checkout. */
-	private static final Duration MIN_TRIAL_LEFT = Duration.ofHours(48).plusMinutes(10);
-
 	/** The request as fingerprinted for idempotency (modules sorted). */
 	record NormalizedCreate(List<String> modules, int seats, BillingInterval interval) {
 	}
@@ -93,30 +88,19 @@ public class SubscriptionService {
 					closePreviousCheckout(orgId, ctx);
 
 					Organization org = access.organization(orgId);
-					boolean paidBefore = subscriptions.findByOrganizationId(orgId)
-							.map(r -> r.getPaidBillingStartedAt() != null).orElse(false);
-					// A practice that has paid before doesn't get trial days again when it re-subscribes.
-					Instant trialEnd = paidBefore ? null : trialEndFor(org);
 					String base = props.frontendUrl().replaceAll("/+$", "");
 
+					// No trial on the subscription: buying ends the free trial and the first period is
+					// charged now, so the practice becomes a paying customer as soon as checkout succeeds.
 					SessionCreateParams.SubscriptionData.Builder data = SessionCreateParams.SubscriptionData.builder()
 							.putMetadata(StripeGateway.ORG_METADATA, orgId.toString())
 							.setDescription(org.getName());
-					if (trialEnd != null) {
-						data.setTrialEnd(trialEnd.getEpochSecond())
-								// No card at trial end → cancel instead of an unpaid "active" subscription.
-								.setTrialSettings(TrialSettings.builder()
-										.setEndBehavior(EndBehavior.builder()
-												.setMissingPaymentMethod(EndBehavior.MissingPaymentMethod.CANCEL)
-												.build())
-										.build());
-					}
 					SessionCreateParams.Builder params = SessionCreateParams.builder()
 							.setMode(SessionCreateParams.Mode.SUBSCRIPTION)
 							.setCustomer(customerId)
 							.setClientReferenceId(orgId.toString())
 							.putMetadata(StripeGateway.ORG_METADATA, orgId.toString())
-							// Always collect a card so billing starts automatically when the trial ends.
+							// Keep the card for the renewals that follow.
 							.setPaymentMethodCollection(SessionCreateParams.PaymentMethodCollection.ALWAYS)
 							.setBillingAddressCollection(SessionCreateParams.BillingAddressCollection.AUTO)
 							.setSubscriptionData(data.build())
@@ -144,10 +128,10 @@ public class SubscriptionService {
 						row.setPendingCheckoutExpiresAt(expiresAt);
 						subscriptions.save(row);
 					});
-					log.info("Checkout {} started for organization {} ({} modules, {} seats, {}, trial end {})",
-							session.getId(), orgId, normalized.modules().size(), normalized.seats(), normalized.interval(), trialEnd);
+					log.info("Checkout {} started for organization {} ({} modules, {} seats, {}; charged at checkout)",
+							session.getId(), orgId, normalized.modules().size(), normalized.seats(), normalized.interval());
 					return new IdempotencyService.Result<>(
-							new CheckoutResponse(session.getId(), session.getUrl(), expiresAt, trialEnd), session.getId());
+							new CheckoutResponse(session.getId(), session.getUrl(), expiresAt, null), session.getId());
 				});
 	}
 
@@ -245,19 +229,6 @@ public class SubscriptionService {
 				subscriptions.save(row);
 			}
 		}));
-	}
-
-	/**
-	 * The free trial started at signup (organization.trial_ends_at) continues in Stripe, so the
-	 * first charge is at the original trial end — never a fresh 14 days. With less than 48 hours
-	 * left (Stripe's minimum) or after the trial, billing starts immediately.
-	 */
-	Instant trialEndFor(Organization org) {
-		Instant end = org.getTrialEndsAt();
-		if (end == null || end.isBefore(Instant.now().plus(MIN_TRIAL_LEFT))) {
-			return null;
-		}
-		return end;
 	}
 
 	static Map<String, String> orgMetadata(UUID orgId) {

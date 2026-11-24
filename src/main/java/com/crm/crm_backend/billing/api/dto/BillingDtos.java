@@ -94,7 +94,7 @@ public final class BillingDtos {
 			/** Stripe-hosted page where the customer enters payment details. */
 			String checkoutUrl,
 			Instant expiresAt,
-			/** When the first charge happens (end of the free trial), or null if charged right away. */
+			/** Always null: the first period is charged at checkout (kept for API compatibility). */
 			Instant trialEndsAt
 	) {
 	}
