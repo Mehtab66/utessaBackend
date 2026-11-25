@@ -8,16 +8,16 @@ import com.crm.crm_backend.shared.exception.ApiException;
 public final class RoleGuard {
 
 	private static final Map<String, Set<String>> PERMS = Map.ofEntries(
-			Map.entry("OWNER", Set.of("dash", "creds", "staff", "vendors", "patients", "crmadmin", "settings", "billing")),
-			Map.entry("ADMIN", Set.of("dash", "creds", "staff", "vendors", "patients", "crmadmin", "settings", "billing")),
-			Map.entry("MANAGER", Set.of("dash", "creds", "staff", "vendors", "patients", "crmadmin")),
-			Map.entry("FRONT", Set.of("dash", "patients")),
-			Map.entry("CLINICAL", Set.of("dash", "patients")),
-			Map.entry("PROVIDER", Set.of("dash", "patients")),
-			Map.entry("BILLING", Set.of("dash")),
-			Map.entry("OUTREACH", Set.of("dash")),
-			Map.entry("HR", Set.of("dash", "creds", "staff")),
-			Map.entry("MEMBER", Set.of("dash"))
+			Map.entry("OWNER", Set.of("dash", "creds", "staff", "vendors", "patients", "crmadmin", "settings", "billing", "timeclock", "tcadmin")),
+			Map.entry("ADMIN", Set.of("dash", "creds", "staff", "vendors", "patients", "crmadmin", "settings", "billing", "timeclock", "tcadmin")),
+			Map.entry("MANAGER", Set.of("dash", "creds", "staff", "vendors", "patients", "crmadmin", "timeclock", "tcadmin")),
+			Map.entry("FRONT", Set.of("dash", "patients", "timeclock")),
+			Map.entry("CLINICAL", Set.of("dash", "patients", "timeclock")),
+			Map.entry("PROVIDER", Set.of("dash", "patients", "timeclock")),
+			Map.entry("BILLING", Set.of("dash", "timeclock")),
+			Map.entry("OUTREACH", Set.of("dash", "timeclock")),
+			Map.entry("HR", Set.of("dash", "creds", "staff", "timeclock", "tcadmin")),
+			Map.entry("MEMBER", Set.of("dash", "timeclock"))
 	);
 
 	private RoleGuard() {

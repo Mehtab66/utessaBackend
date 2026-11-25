@@ -103,6 +103,12 @@
 			<artifactId>stripe-java</artifactId>
 			<version>34.2.0</version>
 		</dependency>
+		<!-- Utessa AI assistant (top-bar "Ask Utessa AI") -->
+		<dependency>
+			<groupId>com.anthropic</groupId>
+			<artifactId>anthropic-java</artifactId>
+			<version>3.13.0</version>
+		</dependency>
 	</dependencies>
 
 	<build>

@@ -41,6 +41,8 @@ public class Vendor extends BaseTenantEntity {
 
 	private String folder;
 
+	private String specialty;
+
 	@Column(name = "contact_name")
 	private String contactName;
 

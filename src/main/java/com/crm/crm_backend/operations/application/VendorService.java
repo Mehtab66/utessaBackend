@@ -66,6 +66,7 @@ public class VendorService {
 		v.setName(r.name().trim());
 		v.setCategory(r.category().trim());
 		v.setFolder(blankToNull(r.folder() != null ? r.folder() : r.category()));
+		v.setSpecialty(blankToNull(r.specialty()));
 		v.setContactName(blankToNull(r.contactName()));
 		v.setContactRole(blankToNull(r.contactRole()));
 		v.setEmail(blankToNull(r.email()));
@@ -88,7 +89,7 @@ public class VendorService {
 
 	private VendorResponse toResponse(Vendor v) {
 		return new VendorResponse(
-				v.getId(), v.getName(), v.getCategory(), v.getFolder(), v.getContactName(), v.getContactRole(),
+				v.getId(), v.getName(), v.getCategory(), v.getFolder(), v.getSpecialty(), v.getContactName(), v.getContactRole(),
 				v.getEmail(), v.getPhone(), v.getWebsite(), v.getAccountNumber(), v.isHandlesPhi(),
 				v.getContractStart(), v.getContractEnd(), v.isAutoRenews(), v.getCancellationNoticeDays(),
 				v.getMonthlyCost(), v.getPaymentTerms(), v.getBaaStatus(), v.getBaaSignedOn(), v.getNotes(),

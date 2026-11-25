@@ -32,6 +32,22 @@ public final class SystemTrust {
 
 	public static SSLContext sslContext() {
 		try {
+			SSLContext ctx = SSLContext.getInstance("TLS");
+			ctx.init(null, new TrustManager[] { trustManager() }, null);
+			return ctx;
+		} catch (Exception ex) {
+			log.warn("Falling back to the default TLS settings: {}", ex.getMessage());
+			try {
+				return SSLContext.getDefault();
+			} catch (Exception e) {
+				throw new IllegalStateException(e);
+			}
+		}
+	}
+
+	/** The JDK + operating-system trust manager on its own, for HTTP clients (OkHttp) that need it. */
+	public static X509TrustManager trustManager() {
+		try {
 			List<X509TrustManager> managers = new ArrayList<>();
 			managers.add(managerFor(null)); // JDK cacerts
 			String os = System.getProperty("os.name", "").toLowerCase();
@@ -45,16 +61,9 @@ public final class SystemTrust {
 					log.warn("Operating-system certificate store {} not available: {}", storeType, ex.getMessage());
 				}
 			}
-			SSLContext ctx = SSLContext.getInstance("TLS");
-			ctx.init(null, new TrustManager[] { new CompositeTrustManager(managers) }, null);
-			return ctx;
+			return new CompositeTrustManager(managers);
 		} catch (Exception ex) {
-			log.warn("Falling back to the default TLS settings: {}", ex.getMessage());
-			try {
-				return SSLContext.getDefault();
-			} catch (Exception e) {
-				throw new IllegalStateException(e);
-			}
+			throw new IllegalStateException("Could not load TLS trust managers", ex);
 		}
 	}
 
